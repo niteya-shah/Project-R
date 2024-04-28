@@ -1,4 +1,6 @@
 library('gmgm')
+library('invgamma')
+library('truncnorm')
 
 T = 1000
 c = 1
@@ -7,6 +9,8 @@ C = 0.01
 phi_0 = 0.95
 v_0 = 0.002
 a = 1000
+
+burnin_int = 10
 
 v = v_0
 phi = phi_0
@@ -55,3 +59,84 @@ for(i in 1:T)
 }
 
 plot(gamma_t, type='l')
+
+phi_log_pdf = function(phi_v, z_t, mu, v)
+{
+  if(phi_v <= 0 || phi_v >= 1.0)
+    return -Inf
+  phi_est = 0.5 * log(1 - phi_v**2) + ((phi_v**2) * (z_t[1] -mu)**2)/(2 * v)
+  phi_est = phi_est + log(dnorm(phi_v, c, sqrt(C)))
+  for(i in 2:T)
+  {
+    phi_est = phi_est + log(dnorm(z_t[i], mean = mu + phi_v * (z_t[i-1] - mu), sd = sqrt(v)))
+  }
+  phi_est
+}
+
+mu_log_pdf = function(mu_v, z_t, a, phi, v)
+{
+  mu_est = mu_0
+  mu_est = mu_est + log(dnorm(z_t[1], mu_v, sqrt(v/(1.0 - phi**2))))
+  for(i in 2:T)
+  {
+    mu_est = mu_est + log(dnorm(z_t[i], mu_v + phi * (z_t[i - 1] - mu_v), sqrt(v)))
+  }
+  mu_est
+}
+
+v_log_pdf = function(v_v, z_t, phi, mu)
+{
+  if(v <= 0.0)
+    return -Inf
+  v_est = log(dinvgamma(v_v, a/2, a * v_v/2.0))
+  v_est = v_est + log(dnorm(z_t[1], mu, v_v/(1 - phi**2)))
+  for(i in 2:T)
+  {
+    v_est = v_est + log(dnorm(z_t[i], mu + phi * (z_t[i-1] - mu), sqrt(v_v)))
+  }
+  v_est
+}
+
+phi_mcmc = phi
+for(i in 1:burnin_int)
+{
+  prop = rtruncnorm(1, 0, 1.0, 0, 1.0)
+  current_prob = phi_log_pdf(phi_mcmc, z_t, mu, v)
+  prop_prob = phi_log_pdf(prop, z_t, mu, v)
+  if(is.finite(prop_prob) && current_prob > prop_prob || (runif(1) < exp(prop_prob - current_prob)))
+  {
+    phi_mcmc = prop
+  }
+}
+
+mu_mcmc = mu
+for(i in 1:burnin_int)
+{
+  prop = rnorm(1, 0, 1.0)
+  current_prob = mu_log_pdf(mu_mcmc, z_t, a, phi, v)
+  prop_prob = mu_log_pdf(prop, z_t, a, phi, v)
+  if(is.finite(prop_prob) && current_prob > prop_prob || (runif(1) < exp(prop_prob - current_prob)))
+  {
+    mu_mcmc = prop
+  }
+}
+
+v_mcmc = v
+for(i in 1:burnin_int)
+{
+  prop = rinvgamma(1, a/2, a * v/2.0)
+  current_prob = v_log_pdf(v_mcmc, z_t, phi, mu)
+  prop_prob = v_log_pdf(prop, z_t, phi, mu)
+  if(is.finite(prop_prob) && current_prob > prop_prob || (runif(1) < exp(prop_prob - current_prob)))
+  {
+    v_mcmc = prop
+  }
+}
+
+phi = phi_mcmc
+mu = mu_mcmc
+v = v_mcmc
+
+m_0 = mu
+C_0 = v/(1-phi**2)
+
