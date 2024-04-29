@@ -6,7 +6,7 @@ T = 1000
 phi_0 = 0.96
 sigma2_0= 0.002
 mu_0 = 0
-burnin_int = 5
+burnin_int = 10
 c = 0.001
 
 q_j = c(0.00730, 0.10556, 0.00002, 0.04395, 0.34001, 0.24566, 0.25750)
@@ -35,7 +35,7 @@ phi_correct = 0.96
 y_t = array(0, T + 1)
 h_t_correct = array(0, T + 1)
 h_t_correct = rnorm(1, mu_correct, sqrt(sigma2_correct/(1 - phi_correct**2)))
-y_t[1] = exp(h_t_correct[1]/2) * rnorm(1, 0, 1)
+y_t[1] = abs(exp(h_t_correct[1]/2) * rnorm(1, 0, 1))
 for(i in 2:(T + 1))
 {
   h_t_correct[i] = mu_correct + phi_correct * (h_t_correct[i - 1] - mu_correct) + rnorm(1, 0, sqrt(sigma2_correct))
@@ -114,7 +114,7 @@ v_log_pdf = function(h_t, mu, sigma2_n, phi)
   v_est = v_est + dnorm(h_t[1], mu, sqrt(sigma2_n/(1 - phi**2)), log = TRUE)
   for(i in 2:T)
   {
-    v_est = v_est + dnorm(z_t[i], mu + phi * (z_t[i-1] - mu), sqrt(sigma2_n), log = TRUE)
+    v_est = v_est + dnorm(h_t[i], mu + phi * (h_t[i-1] - mu), sqrt(sigma2_n), log = TRUE)
   }
   v_est
 }
@@ -127,8 +127,6 @@ sample_mu = function(h_t, mu, sigma2_n, phi)
     prop = rnorm(1, 0, 4.0)
     current_prob = mu_log_pdf(h_t, mu_mcmc, sigma2_n, phi)
     prop_prob = mu_log_pdf(h_t, prop, sigma2_n, phi)
-    cat(prop, current_prob, prop_prob, "\n")
-    
     if(!is.finite(prop_prob))
     {
       next 
@@ -180,6 +178,22 @@ sample_sigma2_n = function(h_t, mu, sigma2_n, phi)
   sigma2_mcmc
 }
 
+sample_s = function(y_star_t, h_t)
+{
+  s = array(0, T)
+  q_j_h = array(0, J)
+  for(i in 1:T)
+  {
+    for(j in 1:J)
+    {
+      q_j_h[j] = q_j[j] * dnorm(y_star_t[i], h_t[i] + b_j[j] - 1.2704, sqrt(w_j[j]))
+    }
+    print(q_j_h)
+    s[i] = sample(1:J, 1, prob = q_j_h, replace=TRUE)
+  }
+  return(s)
+}
+
 sample_h_t <- function(T, y_star_t, s_t, mu, sigma2_n, phi)
 { 
   x_t_t = array(0, T + 1)
@@ -189,7 +203,6 @@ sample_h_t <- function(T, y_star_t, s_t, mu, sigma2_n, phi)
 
   x_t_t[1] = mu
   P_t_t[1] = sigma2_n/(1 - phi**2)
-  
   for(i in 1:T)
   {
     x_t_t_1[i] = mu + phi * x_t_t[i]
@@ -198,7 +211,7 @@ sample_h_t <- function(T, y_star_t, s_t, mu, sigma2_n, phi)
     u = sample(1:J, 1, prob = q_j, replace=TRUE)
     K = P_t_t_1[i]/(P_t_t_1[i] + w_j[u])
     x_t_t[i + 1] = x_t_t_1[i] + K * (y_star_t[i] - (b_j[u] + x_t_t_1[i]))
-    P_t_t[i + 1] = (1 - K) * P_t_t_1[i]
+    P_t_t[i + 1] = (1 - K) * P_t_t_1[i] #+ K**2 * w_j[u]
   }
   h_t = array(0, T + 1)
   h_t[T + 1] <- rnorm(1, x_t_t[T + 1], sqrt(P_t_t[T + 1]))
@@ -226,7 +239,7 @@ sweep = function(T, y_star_t, h_t, mu, sigma2_n, phi, iters)
     phi_t[i] = sample_phi(h_t, mu_t[i-1], sigma2_n_t[i-1], phi_t[i-1])
     mu_t[i] = sample_mu(h_t, mu_t[i-1], sigma2_n_t[i-1], phi_t[i-1])
     sigma2_n_t[i] = sample_sigma2_n(h_t, mu_t[i-1], sigma2_n_t[i-1], phi_t[i-1])
-    s_t = sample(1:J, T, prob = q_j, replace=TRUE)
+    s_t = 0#sample(1:J, 1, prob = q_j_h, replace=TRUE) #sample_s(y_star_t, h_t)
     out = sample_h_t(T, y_star_t, s_t,  mu_t[i], sigma2_n_t[i], phi_t[i])
     h_t = out[[1]]
     x_t_t = out[[2]]
@@ -241,11 +254,12 @@ phi = phi_0
 mu = mu_0
 
 h_t = gen_h(h_t, mu, sigma2_n, phi)
-iters = 1
+iters = 150
 out = sweep(T, y_star_t, h_t, mu, sigma2_n, phi, iters)
 
-plot(out[[1]], type='l')
+
 plot(h_t_correct, type='l')
+plot(out[[1]], type='l')
 
 
 plot(out[[2]], type='l')
