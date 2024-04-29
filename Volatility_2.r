@@ -6,7 +6,7 @@ T = 1000
 phi_0 = 0.96
 sigma2_0= 0.002
 mu_0 = 0
-burnin_int = 10
+burnin_int = 5
 c = 0.001
 
 q_j = c(0.00730, 0.10556, 0.00002, 0.04395, 0.34001, 0.24566, 0.25750)
@@ -97,7 +97,7 @@ phi_log_pdf = function(h_t, mu, sigma2_n, phi)
 
 mu_log_pdf = function(h_t, mu, sigma2_n, phi)
 {
-  mu_est = mu_0
+  mu_est = 0
   mu_est = mu_est + dnorm(h_t[1], mu, sqrt(sigma2_n/(1.0 - phi**2)), log = TRUE)
   for(i in 2:T)
   {
@@ -124,9 +124,11 @@ sample_mu = function(h_t, mu, sigma2_n, phi)
   mu_mcmc = mu
   for(i in 1:burnin_int)
   {
-    prop = rnorm(1, 0, 1.0)
+    prop = rnorm(1, 0, 4.0)
     current_prob = mu_log_pdf(h_t, mu_mcmc, sigma2_n, phi)
     prop_prob = mu_log_pdf(h_t, prop, sigma2_n, phi)
+    cat(prop, current_prob, prop_prob, "\n")
+    
     if(!is.finite(prop_prob))
     {
       next 
@@ -239,12 +241,7 @@ phi = phi_0
 mu = mu_0
 
 h_t = gen_h(h_t, mu, sigma2_n, phi)
-plot(h_t, type='l')
-
-
-iters = 5500
-plot(h_t,type='l')
-mean(h_t)
+iters = 1
 out = sweep(T, y_star_t, h_t, mu, sigma2_n, phi, iters)
 
 plot(out[[1]], type='l')
