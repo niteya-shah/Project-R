@@ -1,9 +1,12 @@
+library('invgamma')
+library('truncnorm')
+
 T = 1000
 
 phi_0 = 0.96
 sigma2_0= 0.002
 mu_0 = 0
-
+burnin_int = 10
 c = 0.001
 
 q_j = c(0.00730, 0.10556, 0.00002, 0.04395, 0.34001, 0.24566, 0.25750)
@@ -23,6 +26,8 @@ plot(stock_price)
 y_t = log(stock_price[2:(T+1)]) - log(stock_price[1:T]) - mean(log(stock_price[2:(T+1)]) - log(stock_price[1:T]))
 y_t = y_t * 100
 
+plot(y_t, type='l')
+
 sigma2_correct = 0.0002
 mu_correct = 1.4
 phi_correct = 0.96
@@ -37,9 +42,10 @@ for(i in 2:(T + 1))
   y_t[i] = abs(exp(h_t_correct[i]/2) * rnorm(1, 0, 1))
 }
 
-y_t = y_t - mean(y_t)
+y_t = log(y_t) * 100
 
 plot(y_t, type='l')
+
 
 y_star_t = log(y_t**2 + c)
 plot(y_star_t, type='l')
@@ -72,52 +78,104 @@ gen_h = function(h_t, mu, sigma2_n, phi)
   return(h_t)
 }
 
-prob_phi_prior = function(phi)
+phi_log_pdf = function(h_t, mu, sigma2_n, phi)
 {
-  phi_star = (phi + 1)/2
-  phi_1 = 20
-  phi_2 = 1.5
-  
-  return(dbeta(phi_star, phi_1, phi_2, log=TRUE))
-}
+  c = 1
+  C = 0.01
 
-g_phi = function(h_t, mu, sigma2_n, phi)
-{
-  prob_phi_prior(phi) - ((h_t[1] - mu)^2 * (1 - phi**2))/(2 * sigma2_n) + 0.5 * log(1 - phi**2)
-}
-
-sample_phi = function(h_t, mu, sigma2_n, phi)
-{
-  temp = (h_t[1:(T-1)] - mu)
-  phi_cap = sum((h_t[2:T] - mu) * temp)/sum(temp)
-  V_phi = sigma2_n/sum((h_t[1:T - 1] - mu)^2)
-  phi_star = rnorm(1, phi_cap, V_phi)
-  if(!is.na(phi_star) && phi_star > 0 && phi_star < 1)
+  if(phi <= 0 || phi >= 1.0)
+    return -Inf
+  phi_est = 0.5 * log(1 - phi**2) + ((phi**2) * (h_t[1] -mu)**2)/(2 * sigma2_n)
+  phi_est = phi_est + log(dnorm(phi, c, sqrt(C)))
+  for(i in 2:T)
   {
-    prop_prob = exp(g_phi(h_t, mu, sigma2_n, phi_star) - g_phi(h_t, mu, sigma2_n, phi))
-    acc_prob  = runif(1)
-    cat(phi_star, prop_prob, acc_prob)
-    if(prop_prob > acc_prob)
-    {
-      return(phi_star)
-    }
+    phi_est = phi_est + log(dnorm(h_t[i], mean = mu + phi * (h_t[i-1] - mu), sd = sqrt(sigma2_n)))
   }
-  return(phi)
+  phi_est
 }
 
-sample_sigma2_n = function(h_t, mu, sigma2_n, phi)
+
+mu_log_pdf = function(h_t, mu, sigma2_n, phi)
 {
-  sigma_r = 5
-  S_phi = 0.01 * sigma_r
-  temp = ((h_t[1] - mu)**2) * (1 - phi**2) + sum(((h_t[2:T] - mu) - phi * (h_t[1:(T-1)] - mu))**2)
-  return(1/rgamma(1, (T + sigma_r)/2, (S_phi + temp)/2))
+  mu_est = mu_0
+  mu_est = mu_est + log(dnorm(h_t[1], mu, sqrt(sigma2_n/(1.0 - phi**2))))
+  for(i in 2:T)
+  {
+    mu_est = mu_est + log(dnorm(h_t[i], mu + phi * (h_t[i - 1] - mu), sqrt(sigma2_n)))
+  }
+  mu_est
+}
+
+v_log_pdf = function(h_t, mu, sigma2_n, phi)
+{
+  if(sigma2_n <= 0.0)
+    return -Inf
+  v_est = log(dinvgamma(sigma2_n, a/2, a * sigma2_n/2.0))
+  v_est = v_est + log(dnorm(h_t[1], mu, sqrt(sigma2_n/(1 - phi**2))))
+  for(i in 2:T)
+  {
+    v_est = v_est + log(dnorm(z_t[i], mu + phi * (z_t[i-1] - mu), sqrt(sigma2_n)))
+  }
+  v_est
 }
 
 sample_mu = function(h_t, mu, sigma2_n, phi)
 {
-  sigma2_mu = sigma2_n/((T-1) * (1-phi)**2 + (1-phi**2))
-  mu_cap = sigma2_mu * ((1-phi**2) * h_t[1]/sigma2_n + (1-phi)/sigma2_n * sum(h_t[2:T] - phi * h_t[1:(T-1)]))
-  return(rnorm(1, mu_cap, sqrt(sigma2_mu)))
+  mu_mcmc = mu
+  for(i in 1:burnin_int)
+  {
+    prop = rnorm(1, 0, 1.0)
+    current_prob = mu_log_pdf(h_t, mu_mcmc, sigma2_n, phi)
+    prop_prob = mu_log_pdf(h_t, prop, sigma2_n, phi)
+    if(!is.finite(prop_prob))
+    {
+      next 
+    }
+    if(prop_prob > current_prob || (runif(1) < exp(prop_prob - current_prob)))
+    {
+      mu_mcmc = prop
+    }
+  }
+  mu_mcmc
+}
+sample_phi = function(h_t, mu, sigma2_n, phi)
+{
+  phi_mcmc = phi
+  for(i in 1:burnin_int)
+  {
+    prop = rtruncnorm(1, 0, 1.0, 0, 1.0)
+    current_prob = phi_log_pdf(h_t, mu, sigma2_n, phi_mcmc)
+    prop_prob = phi_log_pdf(h_t, mu, sigma2_n, prop)
+    if(!is.finite(prop_prob))
+    {
+      next 
+    }
+    if(prop_prob > current_prob || (runif(1) < exp(prop_prob - current_prob)))
+    {
+      phi_mcmc = prop
+    }
+  }
+  phi_mcmc
+}
+sample_sigma2_n = function(h_t, mu, sigma2_n, phi)
+{
+  a = 1000
+  sigma2_mcmc = sigma2_n
+  for(i in 1:burnin_int)
+  {
+    prop = rinvgamma(1, a/2, a * sigma2_n/2.0)
+    current_prob = v_log_pdf(h_t, mu, sigma2_mcmc, phi)
+    prop_prob = v_log_pdf(h_t, mu, prop, phi)
+    if(!is.finite(prop_prob))
+     {
+        next 
+     }
+    if(prop_prob > current_prob || (runif(1) < exp(prop_prob - current_prob)))
+    {
+      sigma2_mcmc = prop
+    }
+  }
+  sigma2_mcmc
 }
 
 sample_h_t <- function(T, y_star_t, s_t, mu, sigma2_n, phi)
@@ -184,7 +242,7 @@ h_t = gen_h(h_t, mu, sigma2_n, phi)
 plot(h_t, type='l')
 
 
-iters = 1000
+iters = 10
 plot(h_t,type='l')
 mean(h_t)
 out = sweep(T, y_star_t, h_t, mu, sigma2_n, phi, iters)
