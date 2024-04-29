@@ -86,10 +86,10 @@ phi_log_pdf = function(h_t, mu, sigma2_n, phi)
   if(phi <= 0 || phi >= 1.0)
     return -Inf
   phi_est = 0.5 * log(1 - phi**2) + ((phi**2) * (h_t[1] -mu)**2)/(2 * sigma2_n)
-  phi_est = phi_est + log(dnorm(phi, c, sqrt(C)))
+  phi_est = phi_est + dnorm(phi, c, sqrt(C), log = TRUE)
   for(i in 2:T)
   {
-    phi_est = phi_est + log(dnorm(h_t[i], mean = mu + phi * (h_t[i-1] - mu), sd = sqrt(sigma2_n)))
+    phi_est = phi_est + dnorm(h_t[i], mean = mu + phi * (h_t[i-1] - mu), sd = sqrt(sigma2_n), log = TRUE)
   }
   phi_est
 }
@@ -98,10 +98,10 @@ phi_log_pdf = function(h_t, mu, sigma2_n, phi)
 mu_log_pdf = function(h_t, mu, sigma2_n, phi)
 {
   mu_est = mu_0
-  mu_est = mu_est + log(dnorm(h_t[1], mu, sqrt(sigma2_n/(1.0 - phi**2))))
+  mu_est = mu_est + dnorm(h_t[1], mu, sqrt(sigma2_n/(1.0 - phi**2)), log = TRUE)
   for(i in 2:T)
   {
-    mu_est = mu_est + log(dnorm(h_t[i], mu + phi * (h_t[i - 1] - mu), sqrt(sigma2_n)))
+    mu_est = mu_est + dnorm(h_t[i], mu + phi * (h_t[i - 1] - mu), sqrt(sigma2_n), log = TRUE)
   }
   mu_est
 }
@@ -110,11 +110,11 @@ v_log_pdf = function(h_t, mu, sigma2_n, phi)
 {
   if(sigma2_n <= 0.0)
     return -Inf
-  v_est = log(dinvgamma(sigma2_n, a/2, a * sigma2_n/2.0))
-  v_est = v_est + log(dnorm(h_t[1], mu, sqrt(sigma2_n/(1 - phi**2))))
+  v_est = dinvgamma(sigma2_n, a/2, a * sigma2_n/2.0, log = TRUE)
+  v_est = v_est + dnorm(h_t[1], mu, sqrt(sigma2_n/(1 - phi**2)), log = TRUE)
   for(i in 2:T)
   {
-    v_est = v_est + log(dnorm(z_t[i], mu + phi * (z_t[i-1] - mu), sqrt(sigma2_n)))
+    v_est = v_est + dnorm(z_t[i], mu + phi * (z_t[i-1] - mu), sqrt(sigma2_n), log = TRUE)
   }
   v_est
 }
@@ -196,7 +196,7 @@ sample_h_t <- function(T, y_star_t, s_t, mu, sigma2_n, phi)
     u = sample(1:J, 1, prob = q_j, replace=TRUE)
     K = P_t_t_1[i]/(P_t_t_1[i] + w_j[u])
     x_t_t[i + 1] = x_t_t_1[i] + K * (y_star_t[i] - (b_j[u] + x_t_t_1[i]))
-    P_t_t[i + 1] = (1 - K)^2 * P_t_t_1[i] + (K * w_j[u])**2
+    P_t_t[i + 1] = (1 - K) * P_t_t_1[i]
   }
   h_t = array(0, T + 1)
   h_t[T + 1] <- rnorm(1, x_t_t[T + 1], sqrt(P_t_t[T + 1]))
@@ -242,7 +242,7 @@ h_t = gen_h(h_t, mu, sigma2_n, phi)
 plot(h_t, type='l')
 
 
-iters = 10
+iters = 5500
 plot(h_t,type='l')
 mean(h_t)
 out = sweep(T, y_star_t, h_t, mu, sigma2_n, phi, iters)
@@ -251,12 +251,13 @@ plot(out[[1]], type='l')
 plot(h_t_correct, type='l')
 
 
-plot(out[[2]][30:iters], type='l')
-plot(out[[3]][30:iters], type='l')
-plot(out[[4]][30:iters], type='l')
+plot(out[[2]], type='l')
+plot(out[[3]], type='l')
+plot(out[[4]], type='l')
 
-mean(out[[2]][30:iters])
-mean(out[[3]][30:iters])
+mean(out[[2]])
+mean(out[[3]])
+mean(out[[4]])
 
 plot(out[[5]], type='l')
 plot(h_t, type='l')
