@@ -1,6 +1,6 @@
 T = 1000
 
-phi_0 = 0.95
+phi_0 = 0.96
 sigma2_0= 0.002
 mu_0 = 0
 
@@ -20,24 +20,24 @@ data = read.csv('DEXUSUK_2.csv')
 length(data[,1])
 stock_price = ts(data[1:(T+1),2])
 plot(stock_price)
+y_t = log(stock_price[2:(T+1)]) - log(stock_price[1:T]) - mean(log(stock_price[2:(T+1)]) - log(stock_price[1:T]))
+y_t = y_t * 100
 
-sigma2_correct = 0.01
-mu_correct = 0.5
+sigma2_correct = 0.0002
+mu_correct = 1.4
 phi_correct = 0.96
 
-stock_price = array(0, T + 1)
+y_t = array(0, T + 1)
 h_t_correct = array(0, T + 1)
 h_t_correct = rnorm(1, mu_correct, sqrt(sigma2_correct/(1 - phi_correct**2)))
-stock_price[1] = abs(exp(h_t_correct[1]/2) * rnorm(1, 0, 1))
+y_t[1] = exp(h_t_correct[1]/2) * rnorm(1, 0, 1)
 for(i in 2:(T + 1))
 {
   h_t_correct[i] = mu_correct + phi_correct * (h_t_correct[i - 1] - mu_correct) + rnorm(1, 0, sqrt(sigma2_correct))
-  stock_price[i] = abs(exp(h_t_correct[i]/2) * rnorm(1, 0, 1))
+  y_t[i] = abs(exp(h_t_correct[i]/2) * rnorm(1, 0, 1))
 }
 
-plot(stock_price, type='l')
-y_t = log(stock_price[2:(T+1)]) - log(stock_price[1:T]) - mean(log(stock_price[2:(T+1)]) - log(stock_price[1:T]))
-y_t = y_t * 100
+y_t = y_t - mean(y_t)
 
 plot(y_t, type='l')
 
@@ -169,9 +169,11 @@ sweep = function(T, y_star_t, h_t, mu, sigma2_n, phi, iters)
     s_t = sample(1:J, T, prob = q_j, replace=TRUE)
     out = sample_h_t(T, y_star_t, s_t,  mu_t[i], sigma2_n_t[i], phi_t[i])
     h_t = out[[1]]
+    x_t_t = out[[2]]
+    P_t_t = out[[3]]
   }
 
-  list("h_t"<-h_t, "mu"<-mu_t, "sigma2_n"<-sigma2_n_t,"phi"<-phi_t)
+  list("h_t"<-h_t, "mu"<-mu_t, "sigma2_n"<-sigma2_n_t,"phi"<-phi_t,"x_t_t"<-x_t_t, "P_t_t"<-P_t_t)
 }
 
 sigma2_n = sigma2_0
@@ -191,6 +193,13 @@ plot(out[[1]], type='l')
 plot(h_t_correct, type='l')
 
 
-plot(out[[2]], type='l')
-plot(out[[3]], type='l')
-plot(out[[4]], type='l')
+plot(out[[2]][30:iters], type='l')
+plot(out[[3]][30:iters], type='l')
+plot(out[[4]][30:iters], type='l')
+
+mean(out[[2]][30:iters])
+mean(out[[3]][30:iters])
+
+plot(out[[5]], type='l')
+plot(h_t, type='l')
+plot(y_t, type='l')
