@@ -1,7 +1,3 @@
-library('gmgm')
-library('invgamma')
-library('truncnorm')
-
 T = 1000
 
 phi_0 = 0.95
@@ -15,7 +11,6 @@ b_j = c(-10.12999, -3.397281, -8.56686, 2.77786, 0.61942, 1.79518, -1.08819)
 w_j = c(5.79596, 2.61369, 5.17950, 0.16735, 0.64009, 0.34023, 1.26261)
 J = length(q_j)
 
-burnin_int = 10
 
 sigma2_n = sigma2_0
 phi = phi_0
@@ -26,7 +21,21 @@ length(data[,1])
 stock_price = ts(data[1:(T+1),2])
 plot(stock_price)
 
+sigma2_correct = 0.01
+mu_correct = 0.5
+phi_correct = 0.96
 
+stock_price = array(0, T + 1)
+h_t_correct = array(0, T + 1)
+h_t_correct = rnorm(1, mu_correct, sqrt(sigma2_correct/(1 - phi_correct**2)))
+stock_price[1] = abs(exp(h_t_correct[1]/2) * rnorm(1, 0, 1))
+for(i in 2:(T + 1))
+{
+  h_t_correct[i] = mu_correct + phi_correct * (h_t_correct[i - 1] - mu_correct) + rnorm(1, 0, sqrt(sigma2_correct))
+  stock_price[i] = abs(exp(h_t_correct[i]/2) * rnorm(1, 0, 1))
+}
+
+plot(stock_price, type='l')
 y_t = log(stock_price[2:(T+1)]) - log(stock_price[1:T]) - mean(log(stock_price[2:(T+1)]) - log(stock_price[1:T]))
 y_t = y_t * 100
 
@@ -36,7 +45,6 @@ y_star_t = log(y_t**2 + c)
 plot(y_star_t, type='l')
 
 h_t = array(0.0, T)
-s_t = sample(1:J, T, prob = q_j, replace=TRUE)
 
 sample_s = function(y_star_t, h_t)
 {
@@ -83,14 +91,13 @@ sample_phi = function(h_t, mu, sigma2_n, phi)
   temp = (h_t[1:(T-1)] - mu)
   phi_cap = sum((h_t[2:T] - mu) * temp)/sum(temp)
   V_phi = sigma2_n/sum((h_t[1:T - 1] - mu)^2)
-  
   phi_star = rnorm(1, phi_cap, V_phi)
-  
-  if(phi_star > 0 && phi_star < 1)
+  if(!is.na(phi_star) && phi_star > 0 && phi_star < 1)
   {
-    prop_prob = exp(g_phi(phi_star) - g(phi))
+    prop_prob = exp(g_phi(h_t, mu, sigma2_n, phi_star) - g_phi(h_t, mu, sigma2_n, phi))
     acc_prob  = runif(1)
-    if(prob_prob > acc_prob)
+    cat(phi_star, prop_prob, acc_prob)
+    if(prop_prob > acc_prob)
     {
       return(phi_star)
     }
@@ -102,57 +109,69 @@ sample_sigma2_n = function(h_t, mu, sigma2_n, phi)
 {
   sigma_r = 5
   S_phi = 0.01 * sigma_r
-  temp = (h_t[1] - mu)**2 * (1 - phi**2) + sum(((h_t[2:T] - mu) - phi * (h_t[1:(T-1)] - mu))**2)
+  temp = ((h_t[1] - mu)**2) * (1 - phi**2) + sum(((h_t[2:T] - mu) - phi * (h_t[1:(T-1)] - mu))**2)
   return(1/rgamma(1, (T + sigma_r)/2, (S_phi + temp)/2))
 }
 
 sample_mu = function(h_t, mu, sigma2_n, phi)
 {
   sigma2_mu = sigma2_n/((T-1) * (1-phi)**2 + (1-phi**2))
-  mu_cap = sigma2_mu * ((1-phi**2)/sigma2_n + (1-phi)/sigma2_n * sum(h_t[2:T] - phi * h_t[1:(T-1)]))
+  mu_cap = sigma2_mu * ((1-phi**2) * h_t[1]/sigma2_n + (1-phi)/sigma2_n * sum(h_t[2:T] - phi * h_t[1:(T-1)]))
   return(rnorm(1, mu_cap, sqrt(sigma2_mu)))
 }
 
 sample_h_t <- function(T, y_star_t, s_t, mu, sigma2_n, phi)
 { 
-  c_t = b_j[s_t]
-  d = mu * (1 - phi)
+  x_t_t = array(0, T + 1)
+  P_t_t = array(0, T + 1)
+  x_t_t_1 = array(0, T)
+  P_t_t_1 = array(0, T)
 
-  gamma_t = array(0, T)
-  P_t = array(0, T)
-  v_t = array(0, T)
-  F_t = array(0, T)
-  K_t = array(0, T)
-  L_t = array(0, T)
-
-  P_t_0 = sigma2_n/(1 - phi**2)
-  gamma_t_0 = rnorm(1, mu, sqrt(P_t_0))  
-  v_t[1] = y_star_t[1] - gamma_t_0 - c_t[1]
-
-  F_t[1] = P_t_0 + sigma2_n
-  K_t[1] = P_t_0/F_t[1]
-  L_t[1] = phi - K_t[1]
-  gamma_t[1] = d + phi * gamma_t_0 + K_t[1] * v_t[1]
-  P_t[1] = phi * P_t_0 * L_t[1] + sigma2_n
-
-  for(i in 2:T)
+  x_t_t[1] = mu
+  P_t_t[1] = sigma2_n/(1 - phi**2)
+  
+  for(i in 1:T)
   {
-    v_t[i] = y_star_t[i] - gamma_t[i] - c_t[i]
-    F_t[i] = P_t[i] + sigma2_n
-    K_t[i] = P_t[i]/F_t[i]
-    L_t[i] = phi - K_t[i]
-    gamma_t[i] = d + phi * gamma_t[i-1] + K_t[i] * v_t[i]
-    P_t[i] = phi * P_t[i-1] * L_t[1] + sigma2_n
+    x_t_t_1[i] = mu + phi * x_t_t[i]
+    P_t_t_1[i] = phi**2 * P_t_t[i] + sigma2_n
+    
+    u = sample(1:J, 1, prob = q_j, replace=TRUE)
+    K = P_t_t_1[i]/(P_t_t_1[i] + w_j[u])
+    x_t_t[i + 1] = x_t_t_1[i] + K * (y_star_t[i] - (b_j[u] + x_t_t_1[i]))
+    P_t_t[i + 1] = (1 - K)^2 * P_t_t_1[i] + (K * w_j[u])**2
   }
-  h_t = array(0, T)
-  h_t[T] <- rnorm(1,gamma_t[T],sqrt(P_t[T]))
-  for(t in (T-1):1)
+  h_t = array(0, T + 1)
+  h_t[T + 1] <- rnorm(1, x_t_t[T + 1], sqrt(P_t_t[T + 1]))
+  for(t in T:1)
   {
-    H <- 1.0 / ( 1.0/(sigma2_n) + 1.0/P_t[t] )
-    h <- H * ( h_t[t+1]/(sigma2_n) + gamma_t[t]/P_t[t] )
-    h_t[t] <- rnorm(1,h,sqrt(H))
+    
+    H <- 1.0 / ( 1.0/(sigma2_n) + 1.0/P_t_t[t] )
+    h <- H * ( h_t[t+1]/(sigma2_n) + x_t_t[t]/P_t_t[t] )
+    h_t[t] <- rnorm(1,h,sqrt(H))    
   }
-  list(h_t, gamma_t, P_t)
+  list(h_t, x_t_t, P_t_t)
+}
+
+sweep = function(T, y_star_t, h_t, mu, sigma2_n, phi, iters)
+{
+  phi_t = array(0, iters)
+  mu_t = array(0, iters)
+  sigma2_n_t = array(0, iters)
+  
+  phi_t[1] = phi
+  mu_t[1] = mu
+  sigma2_n_t[1] = sigma2_n
+  for(i in 2:(iters + 1))
+  {
+    phi_t[i] = sample_phi(h_t, mu_t[i-1], sigma2_n_t[i-1], phi_t[i-1])
+    mu_t[i] = sample_mu(h_t, mu_t[i-1], sigma2_n_t[i-1], phi_t[i-1])
+    sigma2_n_t[i] = sample_sigma2_n(h_t, mu_t[i-1], sigma2_n_t[i-1], phi_t[i-1])
+    s_t = sample(1:J, T, prob = q_j, replace=TRUE)
+    out = sample_h_t(T, y_star_t, s_t,  mu_t[i], sigma2_n_t[i], phi_t[i])
+    h_t = out[[1]]
+  }
+
+  list("h_t"<-h_t, "mu"<-mu_t, "sigma2_n"<-sigma2_n_t,"phi"<-phi_t)
 }
 
 sigma2_n = sigma2_0
@@ -161,16 +180,17 @@ mu = mu_0
 
 h_t = gen_h(h_t, mu, sigma2_n, phi)
 plot(h_t, type='l')
-for(i in 1:10)
-{
-  phi = sample_phi(h_t, mu, sigma2_n, phi)
-  mu = sample_mu(h_t, mu, sigma2_n, phi)
-  sigma2_n = sample_sigma2_n(h_t, mu, sigma2_n, phi)
-  s_t = sample_s(y_star_t, h_t)
-  out = sample_h_t(T, y_star_t, s_t,  mu, sigma2_n, phi)
-  h_t = out[[1]]
-  gamma_t = out[[2]]
-  P_t = out[[3]]
-  cat(phi, mu, sigma2_n, "\n")
-}
+
+
+iters = 1000
 plot(h_t,type='l')
+mean(h_t)
+out = sweep(T, y_star_t, h_t, mu, sigma2_n, phi, iters)
+
+plot(out[[1]], type='l')
+plot(h_t_correct, type='l')
+
+
+plot(out[[2]], type='l')
+plot(out[[3]], type='l')
+plot(out[[4]], type='l')
